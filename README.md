@@ -68,24 +68,82 @@ Perplexity quantifies the "uncertainty" or "surprise" a language model (GPT-2) f
 - **Machine Learning Models**: GPT-2 (Text), DNSMoS (Audio)
 - **Database**: PostgreSQL
 - **Cloud Infrastructure**: AWS S3 (Storage)
+- **Frontend**: React, Vite
 
 
 ## 🛠️ Installation & Setup
+
+### Prerequisites
+
+- Python 3.8+
+- Node.js 16+
+- Redis (running on localhost:6379)
+- PostgreSQL (optional, uses SQLite for development)
 
 ### Clone the repository:
 
 ```bash
 git clone https://github.com/avishkar1465/NexusStream.git
+cd NexusStream
 ```
 
-### Install dependencies:
+### Backend Setup
+
+1. Create and activate a virtual environment:
+
+```bash
+python -m venv venv
+# On Windows:
+venv\Scripts\activate
+# On macOS/Linux:
+# source venv/bin/activate
+```
+
+2. Install Python dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### Run the Flask App:
+3. Start Redis server (if not already running):
+
+```bash
+# Install Redis if needed, then:
+redis-server
+```
+
+4. Run Celery worker in a separate terminal:
+
+```bash
+celery -A celery_app worker --loglevel=info
+```
+
+5. Run the Flask app:
 
 ```bash
 python app.py
 ```
+
+The backend will be running on http://localhost:5000
+
+### Frontend Setup
+
+1. Navigate to the frontend directory:
+
+```bash
+cd frontend
+```
+
+2. Install Node.js dependencies:
+
+```bash
+npm install
+```
+
+3. Start the development server:
+
+```bash
+npm run dev
+```
+
+The frontend will be running on http://localhost:5173

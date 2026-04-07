@@ -14,52 +14,35 @@ class VideoNIQEValidator:
         # NIQE is opinion-unaware: Lower score = Better quality
         self.metric = pyiqa.create_metric('niqe', device=self.device)
 
-    def validate(self, file_bytes, extract_fps=1):
-        """
-        Validates video quality by extracting frames at a set interval
-        and calculating their Natural Scene Statistics (NSS).
-        """
+    def get_raw_scores(self, file_bytes, extract_fps=1):
         scores = []
-        
-        # 1. Create a secure, temporary file on the disk
         temp_fd, temp_path = tempfile.mkstemp(suffix=".mp4")
         
         try:
-            # Write the raw bytes to the physical temp file
             with os.fdopen(temp_fd, 'wb') as f:
                 f.write(file_bytes)
 
-            # 2. Open the video using OpenCV
             cap = cv2.VideoCapture(temp_path)
             if not cap.isOpened():
-                return {"status": False, "error": "OpenCV could not decode the video file."}
+                return scores
 
-            # Get the video's native frame rate
             native_fps = cap.get(cv2.CAP_PROP_FPS)
             if native_fps <= 0:
-                native_fps = 30 # Fallback safety
+                native_fps = 30 
                 
-            # Calculate how many frames to skip to achieve the desired extract_fps (e.g., 1 frame per sec)
             frame_interval = max(1, int(native_fps / extract_fps))
-            
             frame_count = 0
             
-            # 3. Frame Extraction & Scoring Loop
             while True:
                 ret, frame = cap.read()
                 if not ret:
-                    break # End of video
+                    break
                 
-                # Only process frames at the specified interval
                 if frame_count % frame_interval == 0:
-                    # OpenCV loads in BGR. We must convert to RGB for the AI model.
                     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    
-                    # Convert numpy array [H, W, C] to PyTorch tensor [1, C, H, W] normalized to [0, 1]
                     frame_tensor = torch.from_numpy(frame_rgb).float() / 255.0
                     frame_tensor = frame_tensor.permute(2, 0, 1).unsqueeze(0).to(self.device)
                     
-                    # Calculate NIQE score
                     with torch.no_grad():
                         score = self.metric(frame_tensor).item()
                         scores.append(score)
@@ -67,13 +50,17 @@ class VideoNIQEValidator:
                 frame_count += 1
                 
         finally:
-            # 4. Mandatory Cleanup: Release memory and delete the temp file
             if 'cap' in locals():
                 cap.release()
             try:
                 os.remove(temp_path)
             except OSError:
-                pass # File already deleted or locked
+                pass 
+                
+        return scores
+
+    def validate(self, file_bytes, extract_fps=1):
+        scores = self.get_raw_scores(file_bytes, extract_fps)
 
         # 5. The Quality Gate Logic
         if not scores:

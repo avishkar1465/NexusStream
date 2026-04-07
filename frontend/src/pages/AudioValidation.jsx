@@ -20,8 +20,26 @@ export default function AudioValidation() {
     formData.append('audio', audioMode.file);
 
     try {
-      const res = await axios.post(`${API_BASE}/validate-audio`, formData);
-      setAudioMode(prev => ({ ...prev, loading: false, result: res.data }));
+      const res = await axios.post(`${API_BASE}/validate-audio`, formData, { withCredentials: true });
+      const taskId = res.data.task_id;
+      
+      const pollTimer = setInterval(async () => {
+        try {
+          const statusRes = await axios.get(`${API_BASE}/task-status/${taskId}`, { withCredentials: true });
+          const state = statusRes.data.state;
+          if (state === 'SUCCESS') {
+            clearInterval(pollTimer);
+            setAudioMode(prev => ({ ...prev, loading: false, result: statusRes.data.result }));
+          } else if (state === 'FAILURE') {
+            clearInterval(pollTimer);
+            setAudioMode(prev => ({ ...prev, loading: false, error: statusRes.data.error || 'Validation failed.' }));
+          }
+        } catch (e) {
+          clearInterval(pollTimer);
+          setAudioMode(prev => ({ ...prev, loading: false, error: 'Error polling task status.' }));
+        }
+      }, 2000);
+
     } catch (err) {
       setAudioMode(prev => ({ 
         ...prev, 

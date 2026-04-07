@@ -4,7 +4,7 @@ from tqdm import tqdm
 from .model import model, tokenizer, device
 
 
-def perplexity(file):
+def perplexity_raw(file):
     raw_text = file.read().decode('utf-8')
     
     text = re.sub(r'\n+', '\n', raw_text)
@@ -21,7 +21,7 @@ def perplexity(file):
     n_tokens = 0
     prev_end_loc = 0
     
-    for begin_loc in tqdm(range(0, seq_len, stride)):
+    for begin_loc in range(0, seq_len, stride):
         end_loc = min(begin_loc + max_length, seq_len)
         trg_len = end_loc - prev_end_loc
         
@@ -34,12 +34,16 @@ def perplexity(file):
             outputs = model(input_ids, labels=target_ids)
             neg_log_likelihood = outputs.loss * trg_len
 
-        nll_sum += neg_log_likelihood
+        nll_sum += neg_log_likelihood.item()
         n_tokens += trg_len
         prev_end_loc = end_loc
         
         if end_loc == seq_len:
             break
 
-    ppl = torch.exp(nll_sum / n_tokens)
+    return nll_sum, n_tokens
+
+def perplexity(file):
+    nll_sum, n_tokens = perplexity_raw(file)
+    ppl = torch.exp(torch.tensor(nll_sum) / n_tokens)
     return ppl.item()

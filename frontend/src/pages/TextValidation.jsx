@@ -20,8 +20,26 @@ export default function TextValidation() {
     formData.append('file', textMode.file);
 
     try {
-      const res = await axios.post(`${API_BASE}/validate-text`, formData);
-      setTextMode(prev => ({ ...prev, loading: false, result: res.data }));
+      const res = await axios.post(`${API_BASE}/validate-text`, formData, { withCredentials: true });
+      const taskId = res.data.task_id;
+      
+      const pollTimer = setInterval(async () => {
+        try {
+          const statusRes = await axios.get(`${API_BASE}/task-status/${taskId}`, { withCredentials: true });
+          const state = statusRes.data.state;
+          if (state === 'SUCCESS') {
+            clearInterval(pollTimer);
+            setTextMode(prev => ({ ...prev, loading: false, result: statusRes.data.result }));
+          } else if (state === 'FAILURE') {
+            clearInterval(pollTimer);
+            setTextMode(prev => ({ ...prev, loading: false, error: statusRes.data.error || 'Validation failed.' }));
+          }
+        } catch (e) {
+          clearInterval(pollTimer);
+          setTextMode(prev => ({ ...prev, loading: false, error: 'Error polling task status.' }));
+        }
+      }, 2000);
+
     } catch (err) {
       setTextMode(prev => ({ 
         ...prev, 

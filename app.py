@@ -10,9 +10,25 @@ from modules.brisque import brisque
 from modules.models import db, User, DataItem
 from modules.dnsmos import DNSMOS
 
+import os
+import uuid
+from werkzeug.utils import secure_filename
+from celery.result import AsyncResult
+from tasks import (
+    validate_text_task,
+    validate_image_task,
+    validate_audio_task,
+    validate_video_task
+)
+
 app = Flask(__name__)
 # Enable CORS; in production restrict strictly. Supports credentials for cookies/session mapping.
 CORS(app, supports_credentials=True)
+
+# Ensure uploads directory exists
+UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads')
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 app.config['SECRET_KEY'] = 'super-secret-nexus-key-for-dev' # Change in production
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///nexus.db'
@@ -96,30 +112,16 @@ def validate_text():
         return jsonify({"error": "No selected file"}), 400
         
     try:
-        # Pass file object securely mapping perplexity algorithm 
-        ppl = perplexity(file)
-        score = round(ppl, 2)
+        filename = f"{uuid.uuid4().hex}_{secure_filename(file.filename)}"
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(filepath)
         
-        # Determine status. Assuming perplexity < 100 is valid.
-        status = 'validated' if score < 100 else 'rejected'
-        
-        # Save record of the item
-        new_item = DataItem(
-            filename=file.filename,
-            modality='text',
-            validation_score=score,
-            validation_metric='perplexity',
-            status=status,
-            owner=current_user
-        )
-        db.session.add(new_item)
-        db.session.commit()
+        task = validate_text_task.delay(filepath, filename, current_user.id)
         
         return jsonify({
-            'status': status,
-            'perplexity': score,
-            'item_id': new_item.id
-        }), 200
+            'status': 'processing',
+            'task_id': task.id
+        }), 202
         
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -134,44 +136,21 @@ def validate_image():
         return jsonify({"error": "No images provided"}), 400
 
     try:
-        results = brisque(images)
-        scores = [res['brisque_score'] for res in results]
-        
-        dataset_mean = round(np.mean(scores), 4)
-        
-        # Example validation check. Lower brisque is better. < 50 is a common threshold for acceptable.
-        status = 'validated' if dataset_mean < 50 else 'rejected'
+        filepaths = []
+        for image in images:
+            filename = f"{uuid.uuid4().hex}_{secure_filename(image.filename)}"
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            image.save(filepath)
+            filepaths.append(filepath)
 
-        # Optional: Save a batch record, or individual items.
-        # For simplicity, we record a single database entry representing the batch of validated images.
         batch_filename = f"batch_{images[0].filename}_and_{len(images)-1}_more" if len(images) > 1 else images[0].filename
         
-        new_item = DataItem(
-            filename=batch_filename,
-            modality='image_batch',
-            validation_score=dataset_mean,
-            validation_metric='brisque_mean',
-            status=status,
-            owner=current_user
-        )
-        db.session.add(new_item)
-        db.session.commit()
-
-        aggregation = {
-            "dataset_mean": dataset_mean,
-            "dataset_median": round(np.median(scores), 4),
-            "dataset_std": round(np.std(scores), 4),
-            "best_score": round(np.min(scores), 4),
-            "worst_score": round(np.max(scores), 4),
-            "total_images": len(scores),
-            "status": status,
-            "item_id": new_item.id
-        }
+        task = validate_image_task.delay(filepaths, batch_filename, current_user.id)
 
         return jsonify({
-            'status': status,
-            'results': aggregation
-        }), 200
+            'status': 'processing',
+            'task_id': task.id
+        }), 202
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -185,36 +164,18 @@ def validate_audio():
         return jsonify({"error": "No audio file provided"}), 400
 
     try:
-        # Initialize DNSMOS
-        dnsmos_validator = DNSMOS()
+        filename = f"{uuid.uuid4().hex}_{secure_filename(audio_file.filename)}"
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        audio_file.save(filepath)
         
-        # Read the file once
-        file_data = audio_file.read()
-        
-        # Validate audio
-        result = dnsmos_validator.validate(file_data)
-        
-        # Save record of the item using corrected key names
-        new_item = DataItem(
-            filename=audio_file.filename,
-            modality='audio',
-            validation_score=result['scores']['overall_quality'],
-            validation_metric='dnsmos_overall',
-            status='Accepted' if result['status'] else 'Rejected',
-            owner=current_user
-        )
-        db.session.add(new_item)
-        db.session.commit()
+        task = validate_audio_task.delay(filepath, filename, current_user.id)
         
         return jsonify({
-            'status': result['status'],
-            'scores': result['scores'],
-            'result': result['result'],
-            'item_id': new_item.id
-        }), 200
+            'status': 'processing',
+            'task_id': task.id
+        }), 202
         
     except Exception as e:
-        db.session.rollback() # Ensure DB state is safe on error
         return jsonify({"error": str(e)}), 500
 
 @app.route('/validate-video', methods=['POST'])
@@ -226,35 +187,47 @@ def validate_video():
         return jsonify({"error": "No video file provided"}), 400
 
     try:
-        niqe_validator = VideoNIQEValidator()
+        filename = f"{uuid.uuid4().hex}_{secure_filename(video_file.filename)}"
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        video_file.save(filepath)
         
-        file_data = video_file.read()
-        result = niqe_validator.validate(file_data)
-        
-        if "error" in result:
-            return jsonify(result), 400
-            
-        new_item = DataItem(
-            filename=video_file.filename,
-            modality='video',
-            validation_score=result['scores']['niqe_p85'], # Storing the P85 score
-            validation_metric='niqe_p85',
-            status='Accepted' if result['status'] else 'Rejected',
-            owner=current_user
-        )
-        db.session.add(new_item)
-        db.session.commit()
+        task = validate_video_task.delay(filepath, filename, current_user.id)
         
         return jsonify({
-            'status': result['status'],
-            'scores': result['scores'],
-            'result': result['result'],
-            'item_id': new_item.id
-        }), 200
+            'status': 'processing',
+            'task_id': task.id
+        }), 202
         
     except Exception as e:
-        db.session.rollback()
         return jsonify({"error": str(e)}), 500
+        
+@app.route('/task-status/<task_id>', methods=['GET'])
+@login_required
+def get_task_status(task_id):
+    task_result = AsyncResult(task_id)
+    
+    if task_result.state == 'PENDING':
+        response = {
+            'state': task_result.state,
+            'status': 'processing'
+        }
+    elif task_result.state == 'SUCCESS':
+        response = {
+            'state': task_result.state,
+            'result': task_result.result,
+        }
+    elif task_result.state == 'FAILURE':
+        response = {
+            'state': task_result.state,
+            'error': str(task_result.info)
+        }
+    else:
+        response = {
+            'state': task_result.state,
+            'status': str(task_result.info)
+        }
+        
+    return jsonify(response)
 
 if __name__ == '__main__':
     app.run(debug=True)
