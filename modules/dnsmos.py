@@ -2,7 +2,7 @@ import os
 import tempfile
 import torch
 import librosa
-from torchmetrics.audio import DeepNoiseSuppressionMeanOpinionScore
+from torchmetrics.audio.dnsmos import DeepNoiseSuppressionMeanOpinionScore
 
 class DNSMOS:
     def __init__(self):
