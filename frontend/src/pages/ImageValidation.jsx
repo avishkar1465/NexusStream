@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import { Image as ImageIcon, UploadCloud, CheckCircle, AlertTriangle, Database } from 'lucide-react';
+import Gauge from '../components/Gauge';
 
 const API_BASE = 'http://localhost:5000';
 
@@ -133,6 +134,19 @@ export default function ImageValidation() {
               <Database size={14} style={{verticalAlign: 'middle', marginRight: '4px'}}/>
               Lower BRISQUE score corresponds to superior perceptual image quality.
             </div>
+
+            <Gauge 
+              value={imageMode.result.results.dataset_mean} 
+              min={0} 
+              max={100} 
+              label="BRISQUE Mean" 
+              invert={true} 
+              levels={[
+                { label: 'Optimal', range: '< 30', color: 'var(--accent-cyan)' },
+                { label: 'Stable', range: '30 - 50', color: '#FFCC00' },
+                { label: 'Critical', range: '> 50', color: 'var(--accent-magenta)' }
+              ]}
+            />
           </div>
         )}
       </div>

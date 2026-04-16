@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import { Film, UploadCloud, CheckCircle, AlertTriangle, MonitorPlay } from 'lucide-react';
+import Gauge from '../components/Gauge';
 
 const API_BASE = 'http://localhost:5000';
 
@@ -133,6 +134,19 @@ export default function VideoValidation() {
               <MonitorPlay size={14} style={{verticalAlign: 'middle', marginRight: '4px'}}/>
               Lower NIQE score corresponds to superior perceptual visual quality.
             </div>
+
+            <Gauge 
+              value={videoMode.result.scores.niqe_p85} 
+              min={0} 
+              max={15} 
+              label="NIQE (p85)" 
+              invert={true} 
+              levels={[
+                { label: 'Optimal', range: '< 5.0', color: 'var(--accent-cyan)' },
+                { label: 'Stable', range: '5.0 - 7.5', color: '#FFCC00' },
+                { label: 'Critical', range: '> 7.5', color: 'var(--accent-magenta)' }
+              ]}
+            />
           </div>
         )}
       </div>

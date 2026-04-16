@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import { FileText, UploadCloud, CheckCircle, AlertTriangle } from 'lucide-react';
+import Gauge from '../components/Gauge';
 
 const API_BASE = 'http://localhost:5000';
 
@@ -123,6 +124,19 @@ export default function TextValidation() {
             <div style={{ marginTop: '1rem', padding: '0.75rem', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
               {textMode.result.perplexity < 60 ? 'Optimal human-like textual density detected.' : 'High perplexity: possible bot-generated or anomalous text structure.'}
             </div>
+
+            <Gauge 
+              value={textMode.result.perplexity} 
+              min={0} 
+              max={200} 
+              label="Perplexity" 
+              invert={true} 
+              levels={[
+                { label: 'Optimal', range: '< 60', color: 'var(--accent-cyan)' },
+                { label: 'Stable', range: '60 - 100', color: '#FFCC00' },
+                { label: 'Critical', range: '> 100', color: 'var(--accent-magenta)' }
+              ]}
+            />
           </div>
         )}
       </div>

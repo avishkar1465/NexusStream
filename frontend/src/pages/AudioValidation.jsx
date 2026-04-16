@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import { Volume2, UploadCloud, CheckCircle, AlertTriangle, Activity } from 'lucide-react';
+import Gauge from '../components/Gauge';
 
 const API_BASE = 'http://localhost:5000';
 
@@ -129,6 +130,19 @@ export default function AudioValidation() {
               <Activity size={14} style={{verticalAlign: 'middle', marginRight: '4px'}}/>
               DNSMOS scores range from 1 to 5. Higher scores indicate superior perceptual audio clarity.
             </div>
+
+            <Gauge 
+              value={audioMode.result.scores.overall_quality} 
+              min={1} 
+              max={5} 
+              label="Overall Quality" 
+              invert={false} 
+              levels={[
+                { label: 'Optimal', range: '> 4.0', color: 'var(--accent-cyan)' },
+                { label: 'Stable', range: '3.0 - 4.0', color: '#FFCC00' },
+                { label: 'Critical', range: '< 3.0', color: 'var(--accent-magenta)' }
+              ]}
+            />
           </div>
         )}
       </div>

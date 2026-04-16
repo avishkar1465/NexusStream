@@ -11,7 +11,7 @@ import subprocess
 import torch
 
 
-def _split_text_file(filepath, max_chars=3000):
+def _split_text_file(filepath, max_chars=1500):
     chunk_dir = f"{filepath}_chunks"
     os.makedirs(chunk_dir, exist_ok=True)
 
@@ -70,7 +70,7 @@ def validate_text_task(self, filepath, filename, user_id):
     chunks = []
 
     try:
-        chunk_dir, chunks = _split_text_file(filepath, max_chars=3000)
+        chunk_dir, chunks = _split_text_file(filepath, max_chars=1500)
         if not chunks:
             raise Exception("No readable text found.")
 
