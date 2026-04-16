@@ -5,7 +5,8 @@ def make_celery(app_name):
     celery = Celery(
         app_name,
         broker='redis://localhost:6379/0',
-        backend='redis://localhost:6379/0'
+        backend='redis://localhost:6379/0',
+        include=['tasks']
     )
     # Optional configs
     celery.conf.update(

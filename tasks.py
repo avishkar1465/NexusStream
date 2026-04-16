@@ -1,140 +1,173 @@
 from celery_app import celery
-from modules.perplexity import perplexity
+from flask_app import app
 from modules.brisque import brisque
 from modules.dnsmos import DNSMOS
 from modules.niqe import VideoNIQEValidator
 from modules.models import db, DataItem, User
 import numpy as np
 import os
+import glob
+import subprocess
+import torch
+
+
+def _split_text_file(filepath, max_chars=3000):
+    chunk_dir = f"{filepath}_chunks"
+    os.makedirs(chunk_dir, exist_ok=True)
+
+    chunks = []
+    chunk_idx = 0
+    current = []
+    current_len = 0
+
+    with open(filepath, "r", encoding="utf-8", errors="ignore") as infile:
+        for line in infile:
+            while len(line) > max_chars:
+                part = line[:max_chars]
+                line = line[max_chars:]
+
+                if current:
+                    chunk_path = os.path.join(chunk_dir, f"chunk_{chunk_idx:03d}.txt")
+                    with open(chunk_path, "w", encoding="utf-8") as out:
+                        out.writelines(current)
+                    chunks.append(chunk_path)
+                    current = []
+                    current_len = 0
+                    chunk_idx += 1
+
+                chunk_path = os.path.join(chunk_dir, f"chunk_{chunk_idx:03d}.txt")
+                with open(chunk_path, "w", encoding="utf-8") as out:
+                    out.write(part)
+                chunks.append(chunk_path)
+                chunk_idx += 1
+
+            if current_len + len(line) > max_chars and current:
+                chunk_path = os.path.join(chunk_dir, f"chunk_{chunk_idx:03d}.txt")
+                with open(chunk_path, "w", encoding="utf-8") as out:
+                    out.writelines(current)
+                chunks.append(chunk_path)
+                current = []
+                current_len = 0
+                chunk_idx += 1
+
+            current.append(line)
+            current_len += len(line)
+
+    if current:
+        chunk_path = os.path.join(chunk_dir, f"chunk_{chunk_idx:03d}.txt")
+        with open(chunk_path, "w", encoding="utf-8") as out:
+            out.writelines(current)
+        chunks.append(chunk_path)
+
+    return chunk_dir, chunks
+
 
 @celery.task(bind=True)
 def validate_text_task(self, filepath, filename, user_id):
-    from app import app
-    from celery import group
-    import uuid
-    import torch
-    
-    # 1. Chunk the text file
-    chunk_dir = f"{filepath}_chunks"
-    os.makedirs(chunk_dir, exist_ok=True)
-    
-    chunks = []
-    lines_per_chunk = 5000
-    with open(filepath, 'r', encoding='utf-8', errors='ignore') as infile:
-        chunk_idx = 0
-        current_chunk_lines = []
-        for line in infile:
-            current_chunk_lines.append(line)
-            if len(current_chunk_lines) >= lines_per_chunk:
-                chunk_path = os.path.join(chunk_dir, f"chunk_{chunk_idx:03d}.txt")
-                with open(chunk_path, 'w', encoding='utf-8') as outfile:
-                    outfile.writelines(current_chunk_lines)
-                chunks.append(chunk_path)
-                current_chunk_lines = []
-                chunk_idx += 1
-                
-        if current_chunk_lines:
-            chunk_path = os.path.join(chunk_dir, f"chunk_{chunk_idx:03d}.txt")
-            with open(chunk_path, 'w', encoding='utf-8') as outfile:
-                outfile.writelines(current_chunk_lines)
-            chunks.append(chunk_path)
+    from modules.perplexity import perplexity_raw
 
-    # 2. Fire celery group
-    if not chunks:
-        chunks = [filepath] # Fallback if empty
-        
-    job = group(process_text_chunk_task.s(chunk) for chunk in chunks)()
-    
-    # 3. Wait for all chunks to finish
-    chunk_results = job.get()
-    
-    # 4. Aggregate
-    total_nll = 0.0
-    total_tokens = 0
-    for res in chunk_results:
-        if isinstance(res, tuple) or isinstance(res, list):
-            total_nll += float(res[0])
-            total_tokens += int(res[1])
-            
-    # Cleanup physical chunk files
-    for chunk in chunks:
-        if chunk != filepath and os.path.exists(chunk):
-            os.remove(chunk)
-    if os.path.exists(chunk_dir):
-        try: os.rmdir(chunk_dir)
-        except: pass
-        
-    with app.app_context():
-        try:
-            if total_tokens == 0:
-                raise Exception("No readable text frames found.")
-                
-            ppl = float(torch.exp(torch.tensor(total_nll) / total_tokens).item())
-            score = round(ppl, 2)
-            status = 'validated' if score < 100 else 'rejected'
-            
+    chunk_dir = None
+    chunks = []
+
+    try:
+        chunk_dir, chunks = _split_text_file(filepath, max_chars=3000)
+        if not chunks:
+            raise Exception("No readable text found.")
+
+        total_nll = 0.0
+        total_tokens = 0
+
+        for chunk in chunks:
+            with open(chunk, "rb") as f:
+                nll_sum, n_tokens = perplexity_raw(f)
+            total_nll += float(nll_sum)
+            total_tokens += int(n_tokens)
+
+        if total_tokens == 0:
+            raise Exception("No readable text found.")
+
+        ppl = float(torch.exp(torch.tensor(total_nll) / total_tokens).item())
+        score = round(ppl, 2)
+        status = "validated" if score < 100 else "rejected"
+
+        with app.app_context():
             user = User.query.get(user_id)
             new_item = DataItem(
                 filename=filename,
-                modality='text',
+                modality="text",
                 validation_score=score,
-                validation_metric='perplexity',
+                validation_metric="perplexity",
                 status=status,
                 owner=user
             )
             db.session.add(new_item)
             db.session.commit()
-            
-            return {
-                'status': status,
-                'perplexity': score,
-                'item_id': new_item.id
-            }
-        except Exception as e:
-            self.update_state(state='FAILURE', meta={'error': str(e)})
-            raise e
-        finally:
-            if os.path.exists(filepath):
-                os.remove(filepath)
 
-@celery.task
-def process_text_chunk_task(filepath):
-    from modules.perplexity import perplexity_raw
-    with open(filepath, 'rb') as f:
-        nll_sum, n_tokens = perplexity_raw(f)
-    return nll_sum, n_tokens
+            return {
+                "status": status,
+                "perplexity": score,
+                "item_id": new_item.id
+            }
+
+    except Exception:
+        raise
+
+    finally:
+        for chunk in chunks:
+            if os.path.exists(chunk):
+                os.remove(chunk)
+        if chunk_dir and os.path.exists(chunk_dir):
+            try:
+                os.rmdir(chunk_dir)
+            except Exception:
+                pass
+        if os.path.exists(filepath):
+            os.remove(filepath)
+
 
 @celery.task(bind=True)
 def validate_image_task(self, filepaths, batch_filename, user_id):
-    from app import app
-    from celery import group
-    
-    # 1. Fire celery group on each individual image instead of entirely evaluating loop linearly
-    job = group(process_image_chunk_task.s(filepath) for filepath in filepaths)()
-    
-    # 2. Wait for chunks
-    chunk_results = job.get()
-    
-    # 3. Aggregate
     scores = []
-    for res in chunk_results:
-        if isinstance(res, dict) and 'brisque_score' in res:
-            scores.append(res['brisque_score'])
-            
-    with app.app_context():
-        try:
+    errors = []
+
+    try:
+        for filepath in filepaths:
+            try:
+                res_list = brisque([filepath])
+
+                if not res_list:
+                    errors.append(f"{os.path.basename(filepath)} -> empty BRISQUE result")
+                    continue
+
+                first = res_list[0]
+
+                if not isinstance(first, dict):
+                    errors.append(f"{os.path.basename(filepath)} -> unexpected result type: {type(first)}")
+                    continue
+
+                if "brisque_score" not in first:
+                    errors.append(f"{os.path.basename(filepath)} -> missing brisque_score: {first}")
+                    continue
+
+                scores.append(float(first["brisque_score"]))
+
+            except Exception as e:
+                errors.append(f"{os.path.basename(filepath)} -> {e}")
+
+        with app.app_context():
             if not scores:
-                raise Exception("No valid image frames found.")
-                
+                first_error = errors[0] if errors else "Unknown BRISQUE failure"
+                raise Exception(f"No valid image frames found. First error: {first_error}")
+
             dataset_mean = round(float(np.mean(scores)), 4)
-            status = 'validated' if dataset_mean < 50 else 'rejected'
-            
+            status = "validated" if dataset_mean < 50 else "rejected"
+
             user = User.query.get(user_id)
             new_item = DataItem(
                 filename=batch_filename,
-                modality='image_batch',
+                modality="image_batch",
                 validation_score=dataset_mean,
-                validation_metric='brisque_mean',
+                validation_metric="brisque_mean",
                 status=status,
                 owner=user
             )
@@ -148,39 +181,35 @@ def validate_image_task(self, filepaths, batch_filename, user_id):
                 "best_score": round(float(np.min(scores)), 4),
                 "worst_score": round(float(np.max(scores)), 4),
                 "total_images": len(scores),
+                "failed_images": len(errors),
                 "status": status,
                 "item_id": new_item.id
             }
-            return {
-                'status': status,
-                'results': aggregation
-            }
-        except Exception as e:
-            self.update_state(state='FAILURE', meta={'error': str(e)})
-            raise e
-        finally:
-            for filepath in filepaths:
-                if os.path.exists(filepath):
-                    os.remove(filepath)
 
-@celery.task
-def process_image_chunk_task(filepath):
-    # brisque method returns a list of dictionaries. Passing 1 image = list of 1.
-    res_list = brisque([filepath]) 
-    return res_list[0] if res_list else {}
+            if errors:
+                aggregation["sample_error"] = errors[0]
+
+            return {
+                "status": status,
+                "results": aggregation
+            }
+
+    except Exception:
+        db.session.rollback()
+        raise
+
+    finally:
+        for filepath in filepaths:
+            if os.path.exists(filepath):
+                os.remove(filepath)
+
 
 @celery.task(bind=True)
 def validate_audio_task(self, filepath, filename, user_id):
-    from app import app
-    import subprocess
-    import glob
-    from celery import group
-    
-    # 1. Chunk audio with ffmpeg into 60-second clips
     chunk_dir = f"{filepath}_chunks"
     os.makedirs(chunk_dir, exist_ok=True)
     chunk_pattern = os.path.join(chunk_dir, "chunk_%03d.wav")
-    
+
     cmd = [
         "ffmpeg", "-i", filepath,
         "-f", "segment",
@@ -188,98 +217,104 @@ def validate_audio_task(self, filepath, filename, user_id):
         "-c", "copy",
         chunk_pattern
     ]
-    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    
+    ffmpeg_result = subprocess.run(
+        cmd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True
+    )
+    if ffmpeg_result.returncode != 0:
+        raise RuntimeError(f"ffmpeg failed for audio chunking: {ffmpeg_result.stderr}")
+
     chunks = sorted(glob.glob(os.path.join(chunk_dir, "chunk_*.wav")))
     if not chunks:
-        chunks = [filepath] # fallback
-        
-    # 2. Fire proxy celery group
-    job = group(process_audio_chunk_task.s(chunk) for chunk in chunks)()
-    
-    # 3. Wait for all chunks
-    chunk_results_list = job.get()
-    
-    # 4. Aggregate
+        chunks = [filepath]
+
     sig_scores = []
     bak_scores = []
     ovr_scores = []
-    
-    for scores in chunk_results_list:
-        if isinstance(scores, dict) and 'overall_quality' in scores:
-            sig_scores.append(scores['speech_quality'])
-            bak_scores.append(scores['background_noise'])
-            ovr_scores.append(scores['overall_quality'])
-            
-    # Cleanup physical audio chunks
+
+    dnsmos_validator = DNSMOS()
+    for chunk in chunks:
+        try:
+            with open(chunk, 'rb') as f:
+                file_data = f.read()
+
+            result = dnsmos_validator.validate(file_data)
+
+            if isinstance(result, dict) and "scores" in result and isinstance(result["scores"], dict):
+                result = result["scores"]
+
+            if isinstance(result, dict) and all(
+                key in result for key in ["speech_quality", "background_noise", "overall_quality"]
+            ):
+                sig_scores.append(float(result["speech_quality"]))
+                bak_scores.append(float(result["background_noise"]))
+                ovr_scores.append(float(result["overall_quality"]))
+            else:
+                print(f"Unexpected DNSMOS result for {chunk}: {result}")
+
+        except Exception as e:
+            print(f"Audio chunk failed: {chunk} -> {e}")
+
     for chunk in chunks:
         if chunk != filepath and os.path.exists(chunk):
             os.remove(chunk)
     if os.path.exists(chunk_dir):
-        try: os.rmdir(chunk_dir)
-        except: pass
+        try:
+            os.rmdir(chunk_dir)
+        except Exception:
+            pass
 
     with app.app_context():
         try:
             if not ovr_scores:
                 raise Exception("Failed to extract valid audio DNSMOS metrics.")
-                
+
             sig_score = round(float(np.mean(sig_scores)), 2)
             bak_score = round(float(np.mean(bak_scores)), 2)
             ovr_score = round(float(np.mean(ovr_scores)), 2)
 
             passed = ovr_score >= 3.0 and bak_score >= 3.5
-            
+
             user = User.query.get(user_id)
             new_item = DataItem(
                 filename=filename,
-                modality='audio',
+                modality="audio",
                 validation_score=ovr_score,
-                validation_metric='dnsmos_overall',
-                status='Accepted' if passed else 'Rejected',
+                validation_metric="dnsmos_overall",
+                status="Accepted" if passed else "Rejected",
                 owner=user
             )
             db.session.add(new_item)
             db.session.commit()
-            
+
             return {
-                'status': passed,
-                'scores': {
-                    'speech_quality': sig_score,
-                    'background_noise': bak_score,
-                    'overall_quality': ovr_score
-                }, 
-                'result': 'Accepted' if passed else 'Rejected',
-                'item_id': new_item.id
+                "status": passed,
+                "scores": {
+                    "speech_quality": sig_score,
+                    "background_noise": bak_score,
+                    "overall_quality": ovr_score
+                },
+                "result": "Accepted" if passed else "Rejected",
+                "item_id": new_item.id
             }
-        except Exception as e:
+
+        except Exception:
             db.session.rollback()
-            self.update_state(state='FAILURE', meta={'error': str(e)})
-            raise e
+            raise
+
         finally:
             if os.path.exists(filepath):
                 os.remove(filepath)
 
-@celery.task
-def process_audio_chunk_task(filepath):
-    dnsmos_validator = DNSMOS()
-    with open(filepath, 'rb') as f:
-        file_data = f.read()
-    result = dnsmos_validator.validate(file_data)
-    return result['scores']
 
 @celery.task(bind=True)
 def validate_video_task(self, filepath, filename, user_id):
-    from app import app
-    import subprocess
-    import glob
-    from celery import group
-    
-    # 1. Chunk video with ffmpeg into 60-second clips
     chunk_dir = f"{filepath}_chunks"
     os.makedirs(chunk_dir, exist_ok=True)
     chunk_pattern = os.path.join(chunk_dir, "chunk_%03d.mp4")
-    
+
     cmd = [
         "ffmpeg", "-i", filepath,
         "-c", "copy",
@@ -290,79 +325,70 @@ def validate_video_task(self, filepath, filename, user_id):
         chunk_pattern
     ]
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    
+
     chunks = sorted(glob.glob(os.path.join(chunk_dir, "chunk_*.mp4")))
     if not chunks:
-        chunks = [filepath] # fallback
-        
-    # 2. Fire celery group
-    job = group(process_video_chunk_task.s(chunk) for chunk in chunks)()
-    
-    # 3. Wait for all chunks to finish
-    chunk_scores_list = job.get()
-    
-    # 4. Aggregate
+        chunks = [filepath]
+
     all_scores = []
-    for scores in chunk_scores_list:
-        if isinstance(scores, list):
-            all_scores.extend(scores)
-            
-    # Cleanup physical chunk files
+    niqe_validator = VideoNIQEValidator()
+    for chunk in chunks:
+        try:
+            with open(chunk, 'rb') as f:
+                file_bytes = f.read()
+            scores = niqe_validator.get_raw_scores(file_bytes)
+            if isinstance(scores, list):
+                all_scores.extend(scores)
+        except Exception:
+            pass
+
     for chunk in chunks:
         if chunk != filepath and os.path.exists(chunk):
             os.remove(chunk)
     if os.path.exists(chunk_dir):
-        try: os.rmdir(chunk_dir)
-        except: pass
-        
+        try:
+            os.rmdir(chunk_dir)
+        except Exception:
+            pass
+
     with app.app_context():
         try:
             if not all_scores:
                 raise Exception("No frames validated or file unreadable.")
-                
+
             mean_score = round(float(np.mean(all_scores)), 2)
             worst_score = round(float(np.max(all_scores)), 2)
             p85_score = round(float(np.percentile(all_scores, 85)), 2)
             passed = p85_score <= 7.5
-            
-            user = User.query.get(user_id)    
+
+            user = User.query.get(user_id)
             new_item = DataItem(
                 filename=filename,
-                modality='video',
+                modality="video",
                 validation_score=p85_score,
-                validation_metric='niqe_p85',
-                status='Accepted' if passed else 'Rejected',
+                validation_metric="niqe_p85",
+                status="Accepted" if passed else "Rejected",
                 owner=user
             )
             db.session.add(new_item)
             db.session.commit()
-            
+
             return {
-                'status': passed,
-                'scores': {
-                    'niqe_mean': mean_score,
-                    'niqe_worst': worst_score,
-                    'niqe_p85': p85_score,
-                    'frames_analyzed': len(all_scores)
+                "status": passed,
+                "scores": {
+                    "niqe_mean": mean_score,
+                    "niqe_worst": worst_score,
+                    "niqe_p85": p85_score,
+                    "frames_analyzed": len(all_scores)
                 },
-                'result': 'Accepted' if passed else 'Rejected: Video contains significant blur or compression artifacts.',
-                'item_id': new_item.id
+                "result": "Accepted" if passed else "Rejected: Video contains significant blur or compression artifacts.",
+                "item_id": new_item.id
             }
-        except Exception as e:
+
+        except Exception:
             db.session.rollback()
-            self.update_state(state='FAILURE', meta={'error': str(e)})
-            raise e
+            raise
+
         finally:
             if os.path.exists(filepath):
                 os.remove(filepath)
-
-@celery.task
-def process_video_chunk_task(filepath):
-    # Map task for a single video chunk
-    niqe_validator = VideoNIQEValidator()
-    with open(filepath, 'rb') as f:
-        file_bytes = f.read()
-    
-    # Extract native raw scores directly without statistical reduction
-    scores = niqe_validator.get_raw_scores(file_bytes)
-    return scores
