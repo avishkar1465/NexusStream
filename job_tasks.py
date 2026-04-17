@@ -87,18 +87,49 @@ def _serialize_item(item_id, fallback_name=None):
 
 
 @celery.task(bind=True, name="job_tasks.run_text_validation_job")
-def run_text_validation_job(self, job_id, filepath, filename, user_id):
-    dataset_path, _ = _persist_dataset_copy(job_id, [filepath])
+def run_text_validation_job(self, job_id, filepaths, filenames, user_id):
+    dataset_path, _ = _persist_dataset_copy(job_id, filepaths)
     _mark_processing(job_id, "Running text validation.")
 
     try:
-        result = base_tasks.validate_text_task.run(filepath, filename, user_id)
+        per_file = []
+        item_ids = []
+        for filepath, filename in zip(filepaths, filenames):
+            result = base_tasks.validate_text_task.run(filepath, filename, user_id)
+            item_ids.append(result.get("item_id"))
+            per_file.append({
+                "filename": filename,
+                "status": normalize_item_status(result.get("status")),
+                "perplexity": result.get("perplexity"),
+                "item_id": result.get("item_id"),
+            })
+
+        perplexities = [entry["perplexity"] for entry in per_file if entry.get("perplexity") is not None]
+        average_perplexity = round(float(np.mean(perplexities)), 2) if perplexities else 0.0
+        best_perplexity = round(float(np.min(perplexities)), 2) if perplexities else 0.0
+        worst_perplexity = round(float(np.max(perplexities)), 2) if perplexities else 0.0
+        status = "validated" if average_perplexity < 100 else "rejected"
+
         payload = {
-            "status": normalize_item_status(result.get("status")),
-            "mode": "single",
-            "result": result,
+            "status": status,
+            "mode": "batch" if len(per_file) > 1 else "single",
+            "summary": {
+                "average_perplexity": average_perplexity,
+                "best_perplexity": best_perplexity,
+                "worst_perplexity": worst_perplexity,
+                "accepted_files": sum(1 for entry in per_file if entry["status"] == "validated"),
+                "total_files": len(per_file),
+            },
+            "files": per_file,
         }
-        _store_final_result(job_id, payload, [result.get("item_id")], dataset_path)
+        if len(per_file) == 1:
+            payload["result"] = {
+                "status": status,
+                "perplexity": average_perplexity,
+                "item_id": item_ids[0],
+            }
+
+        _store_final_result(job_id, payload, item_ids, dataset_path)
         return payload
     except Exception as exc:
         _mark_failed(job_id, str(exc))

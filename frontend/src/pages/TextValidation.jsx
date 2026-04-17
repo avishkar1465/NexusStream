@@ -8,17 +8,19 @@ const API_BASE = 'http://localhost:5000';
 export default function TextValidation() {
   const navigate = useNavigate();
   const [textMode, setTextMode] = useState({
-    file: null,
+    files: [],
     loading: false,
     error: null
   });
 
   const handleTextUpload = async () => {
-    if (!textMode.file) return;
+    if (!textMode.files.length) return;
     
     setTextMode(prev => ({ ...prev, loading: true, error: null }));
     const formData = new FormData();
-    formData.append('file', textMode.file);
+    textMode.files.forEach((file) => {
+      formData.append('files', file);
+    });
 
     try {
       await axios.post(`${API_BASE}/validate-text`, formData, { withCredentials: true });
@@ -50,27 +52,29 @@ export default function TextValidation() {
           Text Validation (Perplexity)
         </h2>
         
-        <div className={`upload-area ${textMode.file ? 'active' : ''}`}>
+        <div className={`upload-area ${textMode.files.length ? 'active' : ''}`}>
           <input 
             type="file" 
             accept=".txt"
+            multiple
             onChange={(e) => {
-              if(e.target.files.length > 0) {
-                setTextMode(prev => ({ ...prev, file: e.target.files[0] }));
-              }
+              const nextFiles = Array.from(e.target.files || []);
+              setTextMode(prev => ({ ...prev, files: nextFiles }));
             }}
           />
           <UploadCloud className="upload-icon" />
-          <h3>Drop .txt file here</h3>
+          <h3>Drop one or more .txt files here</h3>
           <p style={{ color: 'var(--text-muted)', marginTop: '0.5rem', fontSize: '0.9rem' }}>
-            {textMode.file ? textMode.file.name : 'or click to browse local storage'}
+            {textMode.files.length
+              ? `${textMode.files.length} file${textMode.files.length === 1 ? '' : 's'} selected`
+              : 'or click to browse local storage'}
           </p>
         </div>
 
         <button 
           className="btn" 
           onClick={handleTextUpload}
-          disabled={!textMode.file || textMode.loading}
+          disabled={!textMode.files.length || textMode.loading}
         >
           {textMode.loading ? (
             <><span className="loader"></span> ANALYZING_SEQUENCE...</>

@@ -127,6 +127,8 @@ def _extract_job_score(job):
 
     if modality == "text":
         return result.get("result", {}).get("perplexity"), "perplexity"
+    if modality == "text_batch":
+        return result.get("summary", {}).get("average_perplexity"), "perplexity_mean"
     if modality == "image_batch":
         return result.get("result", {}).get("results", {}).get("dataset_mean"), "brisque_mean"
     if modality == "audio_batch":
@@ -409,27 +411,42 @@ def me():
 @app.route("/validate-text", methods=["POST"])
 @login_required
 def validate_text():
-    file = request.files.get("file")
-    if not file:
-        return _json_error("No file part", 400)
-    if not file.filename:
-        return _json_error("No selected file", 400)
+    files = request.files.getlist("files")
+    if not files:
+        single_file = request.files.get("file")
+        if single_file:
+            files = [single_file]
+
+    valid_files = [file for file in files if file and file.filename]
+    if not valid_files:
+        return _json_error("No text file provided", 400)
+
+    saved_paths = []
+    original_names = []
 
     try:
-        filepath, stored_filename, original_name = _save_single_upload(file)
-        job = _create_job(original_name, "text", TEXT_QUEUE, 1)
+        for file in valid_files:
+            filepath, _, original_name = _save_single_upload(file)
+            saved_paths.append(filepath)
+            original_names.append(original_name)
+
+        display_name = original_names[0] if len(original_names) == 1 else f"text_batch_{len(original_names)}_files"
+        modality = "text" if len(original_names) == 1 else "text_batch"
+        job = _create_job(display_name, modality, TEXT_QUEUE, len(original_names))
         task = _dispatch_task(
             task_name=TASK_NAMES["text"],
-            args=[job.id, filepath, stored_filename, current_user.id],
+            args=[job.id, saved_paths, original_names, current_user.id],
             queue=TEXT_QUEUE,
-            cleanup_paths=[filepath],
+            cleanup_paths=saved_paths,
         )
         job.celery_task_id = task.id
         db.session.commit()
         return jsonify({"status": "processing", "task_id": task.id, "queue": TEXT_QUEUE, "job_id": job.id}), 202
     except ValueError as exc:
+        _cleanup_paths(saved_paths)
         return _json_error(str(exc), 400)
     except Exception as exc:
+        _cleanup_paths(saved_paths)
         return _json_error(str(exc), 500)
 
 

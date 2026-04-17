@@ -4,8 +4,12 @@ import Gauge from './Gauge';
 import { formatIstTimestamp } from '../utils/time';
 
 function textInsights(job) {
+  const summary = job?.result?.summary || {};
   const result = job?.result?.result || {};
-  const perplexity = Number(result.perplexity || 0);
+  const files = job?.result?.files || [];
+  const perplexity = Number(
+    summary.average_perplexity ?? result.perplexity ?? 0
+  );
 
   return (
     <>
@@ -32,9 +36,17 @@ function textInsights(job) {
           <span className="stat-label">Metric</span>
           <span className="stat-value">Exp Neg-Log-Likelihood</span>
         </div>
+        {summary.total_files ? (
+          <div className="stat-row">
+            <span className="stat-label">Accepted Files</span>
+            <span className="stat-value">
+              {summary.accepted_files} / {summary.total_files}
+            </span>
+          </div>
+        ) : null}
         <div className="stat-row" style={{ marginTop: '1rem' }}>
           <span className="stat-label" style={{ fontSize: '1.2rem', color: '#fff' }}>
-            Perplexity Score
+            {files.length > 1 ? 'Average Perplexity' : 'Perplexity Score'}
           </span>
           <span className="stat-value highlight">{perplexity.toFixed(2)}</span>
         </div>
@@ -64,6 +76,38 @@ function textInsights(job) {
             { label: 'Critical', range: '> 100', color: 'var(--accent-magenta)' },
           ]}
         />
+        {!!files.length && files.length > 1 && (
+          <div style={{ marginTop: '1.5rem' }}>
+            <div className="legend-header" style={{ marginBottom: '0.75rem' }}>
+              Per File Breakdown
+            </div>
+            <div style={{ display: 'grid', gap: '0.75rem' }}>
+              {files.map((file, index) => (
+                <div key={`${file.filename}-${index}`} className="metric-card">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+                    <div className="metric-value" style={{ marginTop: 0 }}>
+                      {file.filename}
+                    </div>
+                    <div
+                      className="status-pill"
+                      style={{
+                        borderColor:
+                          file.status === 'validated' ? 'var(--accent-cyan)' : 'var(--accent-magenta)',
+                        color:
+                          file.status === 'validated' ? 'var(--accent-cyan)' : 'var(--accent-magenta)',
+                      }}
+                    >
+                      {String(file.status || '').toUpperCase()}
+                    </div>
+                  </div>
+                  <div style={{ marginTop: '0.65rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                    Perplexity {Number(file.perplexity || 0).toFixed(2)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </>
   );
@@ -339,7 +383,7 @@ function videoInsights(job) {
 
 function renderInsights(job) {
   if (!job) return null;
-  if (job.modality === 'text') return textInsights(job);
+  if (job.modality === 'text' || job.modality === 'text_batch') return textInsights(job);
   if (job.modality === 'image_batch') return imageInsights(job);
   if (job.modality === 'audio_batch') return audioInsights(job);
   if (job.modality === 'video_batch') return videoInsights(job);

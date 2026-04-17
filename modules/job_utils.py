@@ -57,7 +57,7 @@ def compute_quality_percent(modality, score):
 
     modality = modality or ""
     value = float(score)
-    if modality == "text":
+    if modality in {"text", "text_batch"}:
         quality = (120.0 - value) / 120.0 * 100.0
     elif modality == "image_batch":
         quality = (100.0 - value) / 100.0 * 100.0
@@ -74,6 +74,7 @@ def compute_marketplace_price(modality, quality_percent, source_count):
     count = max(1, int(source_count or 1))
     modality_multiplier = {
         "text": 0.95,
+        "text_batch": 0.95,
         "image_batch": 1.1,
         "audio_batch": 1.08,
         "video_batch": 1.18,
@@ -85,7 +86,7 @@ def compute_marketplace_price(modality, quality_percent, source_count):
 
 
 def listing_delivery_type(modality, source_count):
-    batch_modalities = {"image_batch", "audio_batch", "video_batch"}
+    batch_modalities = {"text_batch", "image_batch", "audio_batch", "video_batch"}
     if modality in batch_modalities or int(source_count or 0) > 1:
         return "folder"
     return "file"
