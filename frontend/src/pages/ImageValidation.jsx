@@ -1,48 +1,30 @@
 import React, { useState } from 'react';
 import axios from 'axios';
-import { Image as ImageIcon, UploadCloud, CheckCircle, AlertTriangle, Database } from 'lucide-react';
-import Gauge from '../components/Gauge';
+import { useNavigate } from 'react-router-dom';
+import { Image as ImageIcon, UploadCloud, AlertTriangle } from 'lucide-react';
 
 const API_BASE = 'http://localhost:5000';
 
 export default function ImageValidation() {
+  const navigate = useNavigate();
   const [imageMode, setImageMode] = useState({
     files: [],
     loading: false,
-    result: null,
     error: null
   });
 
   const handleImageUpload = async () => {
     if (!imageMode.files.length) return;
     
-    setImageMode(prev => ({ ...prev, loading: true, error: null, result: null }));
+    setImageMode(prev => ({ ...prev, loading: true, error: null }));
     const formData = new FormData();
     Array.from(imageMode.files).forEach(f => {
       formData.append('images', f);
     });
 
     try {
-      const res = await axios.post(`${API_BASE}/validate-image`, formData, { withCredentials: true });
-      const taskId = res.data.task_id;
-      
-      const pollTimer = setInterval(async () => {
-        try {
-          const statusRes = await axios.get(`${API_BASE}/task-status/${taskId}`, { withCredentials: true });
-          const state = statusRes.data.state;
-          if (state === 'SUCCESS') {
-            clearInterval(pollTimer);
-            setImageMode(prev => ({ ...prev, loading: false, result: statusRes.data.result }));
-          } else if (state === 'FAILURE') {
-            clearInterval(pollTimer);
-            setImageMode(prev => ({ ...prev, loading: false, error: statusRes.data.error || 'Validation failed.' }));
-          }
-        } catch (e) {
-          clearInterval(pollTimer);
-          setImageMode(prev => ({ ...prev, loading: false, error: 'Error polling task status.' }));
-        }
-      }, 2000);
-
+      await axios.post(`${API_BASE}/validate-image`, formData, { withCredentials: true });
+      navigate('/dashboard');
     } catch (err) {
       setImageMode(prev => ({ 
         ...prev, 
@@ -77,7 +59,7 @@ export default function ImageValidation() {
             accept="image/*"
             onChange={(e) => {
               if(e.target.files.length > 0) {
-                setImageMode(prev => ({ ...prev, files: e.target.files, result: null }));
+                setImageMode(prev => ({ ...prev, files: e.target.files }));
               }
             }}
           />
@@ -105,48 +87,6 @@ export default function ImageValidation() {
             <div style={{color: 'var(--accent-magenta)', display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
               <AlertTriangle size={18} /> {imageMode.error}
             </div>
-          </div>
-        )}
-
-        {imageMode.result && (
-          <div className="result-card">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem', color: 'var(--accent-cyan)' }}>
-              <CheckCircle size={20} /> <span className="font-mono">BATCH PROCESSING DONE</span>
-            </div>
-            <div className="stat-row">
-              <span className="stat-label">Total Images Scored</span>
-              <span className="stat-value">{imageMode.result.results.total_images}</span>
-            </div>
-            <div className="stat-row">
-              <span className="stat-label">Dataset Mean Score</span>
-              <span className="stat-value">{imageMode.result.results.dataset_mean.toFixed(2)}</span>
-            </div>
-            <div className="stat-row">
-              <span className="stat-label">Best Score (Lowest)</span>
-              <span className="stat-value" style={{color: '#00ffaa'}}>{imageMode.result.results.best_score.toFixed(2)}</span>
-            </div>
-            <div className="stat-row">
-              <span className="stat-label">Worst Score (Highest)</span>
-              <span className="stat-value" style={{color: 'var(--accent-magenta)'}}>{imageMode.result.results.worst_score.toFixed(2)}</span>
-            </div>
-            
-            <div style={{ marginTop: '1rem', fontSize: '0.75rem', textAlign: 'center', color: 'var(--text-muted)' }}>
-              <Database size={14} style={{verticalAlign: 'middle', marginRight: '4px'}}/>
-              Lower BRISQUE score corresponds to superior perceptual image quality.
-            </div>
-
-            <Gauge 
-              value={imageMode.result.results.dataset_mean} 
-              min={0} 
-              max={100} 
-              label="BRISQUE Mean" 
-              invert={true} 
-              levels={[
-                { label: 'Optimal', range: '< 30', color: 'var(--accent-cyan)' },
-                { label: 'Stable', range: '30 - 50', color: '#FFCC00' },
-                { label: 'Critical', range: '> 50', color: 'var(--accent-magenta)' }
-              ]}
-            />
           </div>
         )}
       </div>

@@ -7,7 +7,8 @@ const Gauge = ({
   label = "Quality Score", 
   invert = false, // true if lower is better
   unit = "",
-  levels = [] // [{ label: "Optimal", range: "< 60", color: "..." }]
+  levels = [], // [{ label: "Optimal", range: "< 60", color: "..." }]
+  bands = null, // [{ label: "Critical", min: 0, max: 2, color: "..." }]
 }) => {
   // Normalize value between 0 and 1
   const normalizedValue = Math.min(Math.max((value - min) / (max - min), 0), 1);
@@ -16,14 +17,26 @@ const Gauge = ({
   const angle = (normalizedValue * 180) - 90;
   
   // Color calculation
-  const getColor = (val) => {
-    const v = invert ? 1 - val : val;
-    if (v > 0.7) return 'var(--accent-cyan)';
-    if (v > 0.4) return '#FFCC00'; // Yellow/Warning
-    return 'var(--accent-magenta)';
-  };
+  const defaultVisualValue = invert ? 1 - normalizedValue : normalizedValue;
+  const defaultColor =
+    defaultVisualValue > 0.7 ? 'var(--accent-cyan)' :
+    defaultVisualValue > 0.4 ? '#FFCC00' :
+    'var(--accent-magenta)';
 
-  const color = getColor(normalizedValue);
+  const matchedBand = Array.isArray(bands)
+    ? bands.find((band) => {
+        const minValue = band.min ?? Number.NEGATIVE_INFINITY;
+        const maxValue = band.max ?? Number.POSITIVE_INFINITY;
+        const includeMax = band.includeMax ?? false;
+        return value >= minValue && (includeMax ? value <= maxValue : value < maxValue);
+      })
+    : null;
+
+  const color = matchedBand?.color || defaultColor;
+  const statusLabel = matchedBand?.label?.toUpperCase() || (
+    (invert ? (normalizedValue < 0.3) : (normalizedValue > 0.7)) ? 'OPTIMAL' : 
+    (invert ? (normalizedValue < 0.6) : (normalizedValue > 0.4)) ? 'STABLE' : 'CRITICAL'
+  );
 
   return (
     <div className="gauge-wrapper">
@@ -73,8 +86,7 @@ const Gauge = ({
         </div>
         
         <div className="gauge-status" style={{ background: `${color}22`, borderColor: color }}>
-          { (invert ? (normalizedValue < 0.3) : (normalizedValue > 0.7)) ? 'OPTIMAL' : 
-            (invert ? (normalizedValue < 0.6) : (normalizedValue > 0.4)) ? 'STABLE' : 'CRITICAL' }
+          {statusLabel}
         </div>
       </div>
 

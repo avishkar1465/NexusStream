@@ -36,7 +36,7 @@ export default function AuthPage() {
       await checkAuth();
       
       // Success. Navigate away
-      navigate('/text-validation');
+      navigate('/dashboard');
       
     } catch (err) {
       setError(err.response?.data?.error || "Connection error. Ensure the backend is active.");

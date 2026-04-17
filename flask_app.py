@@ -5,11 +5,14 @@ from modules.models import db, User
 import os
 
 app = Flask(__name__)
-CORS(app, supports_credentials=True)
+CORS(app, supports_credentials=True, expose_headers=["Content-Disposition", "Content-Type"])
 
 UPLOAD_FOLDER = os.path.join(os.getcwd(), "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+DATASET_FOLDER = os.path.join(os.getcwd(), "marketplace_datasets")
+os.makedirs(DATASET_FOLDER, exist_ok=True)
+app.config["DATASET_FOLDER"] = DATASET_FOLDER
 
 app.config["SECRET_KEY"] = "super-secret-nexus-key-for-dev"
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///nexus.db"

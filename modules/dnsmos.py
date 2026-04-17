@@ -35,7 +35,7 @@ class DNSMOS:
             ovr_score = round(scores[3].item(), 2)  # Overall Quality
 
             # Quality Gate thresholding
-            passed = ovr_score >= 3.0 and bak_score >= 3.5
+            passed = ovr_score >= 2.0
 
             return {
                 'status': passed,

@@ -211,10 +211,13 @@ def validate_audio_task(self, filepath, filename, user_id):
     chunk_pattern = os.path.join(chunk_dir, "chunk_%03d.wav")
 
     cmd = [
-        "ffmpeg", "-i", filepath,
+        "ffmpeg", "-y", "-i", filepath,
+        "-vn",
         "-f", "segment",
         "-segment_time", "60",
-        "-c", "copy",
+        "-ac", "1",
+        "-ar", "16000",
+        "-c:a", "pcm_s16le",
         chunk_pattern
     ]
     ffmpeg_result = subprocess.run(
@@ -223,11 +226,8 @@ def validate_audio_task(self, filepath, filename, user_id):
         stderr=subprocess.PIPE,
         text=True
     )
-    if ffmpeg_result.returncode != 0:
-        raise RuntimeError(f"ffmpeg failed for audio chunking: {ffmpeg_result.stderr}")
-
     chunks = sorted(glob.glob(os.path.join(chunk_dir, "chunk_*.wav")))
-    if not chunks:
+    if ffmpeg_result.returncode != 0 or not chunks:
         chunks = [filepath]
 
     sig_scores = []
@@ -275,7 +275,7 @@ def validate_audio_task(self, filepath, filename, user_id):
             bak_score = round(float(np.mean(bak_scores)), 2)
             ovr_score = round(float(np.mean(ovr_scores)), 2)
 
-            passed = ovr_score >= 3.0 and bak_score >= 3.5
+            passed = ovr_score >= 2.0
 
             user = User.query.get(user_id)
             new_item = DataItem(

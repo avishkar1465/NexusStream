@@ -3,6 +3,9 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import LandingPage from './pages/LandingPage';
 import AuthPage from './pages/AuthPage';
+import DashboardPage from './pages/DashboardPage';
+import MarketplacePage from './pages/MarketplacePage';
+import MyDatasetsPage from './pages/MyDatasetsPage';
 import TextValidation from './pages/TextValidation';
 import ImageValidation from './pages/ImageValidation';
 import AudioValidation from './pages/AudioValidation';
@@ -19,6 +22,9 @@ function App() {
           <Routes>
             <Route path="/" element={<LandingPage />} />
             <Route path="/auth" element={<AuthPage />} />
+            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/marketplace" element={<MarketplacePage />} />
+            <Route path="/my-datasets" element={<MyDatasetsPage />} />
             <Route path="/text-validation" element={<TextValidation />} />
             <Route path="/image-validation" element={<ImageValidation />} />
             <Route path="/audio-validation" element={<AudioValidation />} />

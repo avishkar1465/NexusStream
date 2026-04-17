@@ -236,6 +236,114 @@ h1, h2, h3 {
   animation: slideUp 0.4s ease-out forwards;
 }
 
+.summary-card,
+.metric-card,
+.history-card {
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+}
+
+.summary-card {
+  padding: 1rem;
+}
+
+.summary-value {
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--accent-cyan);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.summary-label,
+.metric-label {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.history-card {
+  padding: 1rem 1.1rem;
+}
+
+.metric-card {
+  padding: 0.85rem 0.95rem;
+}
+
+.metric-value {
+  margin-top: 0.35rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  color: #fff;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid;
+  border-radius: 999px;
+  padding: 0.4rem 0.9rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
+  background: rgba(255,255,255,0.04);
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 5, 10, 0.78);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  z-index: 1000;
+}
+
+.modal-shell {
+  width: min(980px, 100%);
+  max-height: 88vh;
+  overflow-y: auto;
+  background: rgba(10, 12, 24, 0.96);
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  padding: 1.5rem;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+}
+
+.modal-body {
+  padding-top: 0.5rem;
+}
+
+.modal-close {
+  background: transparent;
+  color: var(--text-main);
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 999px;
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.modal-close:hover {
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+}
+
 .stat-row {
   display: flex;
   justify-content: space-between;
@@ -432,6 +540,13 @@ h1, h2, h3 {
 }
 
 @media (max-width: 600px) {
+  .modal-overlay {
+    padding: 1rem;
+  }
+  .modal-shell {
+    padding: 1rem;
+    max-height: 92vh;
+  }
   .gauge-wrapper {
     flex-direction: column;
     gap: 2rem;

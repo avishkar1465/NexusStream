@@ -1,46 +1,28 @@
 import React, { useState } from 'react';
 import axios from 'axios';
-import { FileText, UploadCloud, CheckCircle, AlertTriangle } from 'lucide-react';
-import Gauge from '../components/Gauge';
+import { useNavigate } from 'react-router-dom';
+import { FileText, UploadCloud, AlertTriangle } from 'lucide-react';
 
 const API_BASE = 'http://localhost:5000';
 
 export default function TextValidation() {
+  const navigate = useNavigate();
   const [textMode, setTextMode] = useState({
     file: null,
     loading: false,
-    result: null,
     error: null
   });
 
   const handleTextUpload = async () => {
     if (!textMode.file) return;
     
-    setTextMode(prev => ({ ...prev, loading: true, error: null, result: null }));
+    setTextMode(prev => ({ ...prev, loading: true, error: null }));
     const formData = new FormData();
     formData.append('file', textMode.file);
 
     try {
-      const res = await axios.post(`${API_BASE}/validate-text`, formData, { withCredentials: true });
-      const taskId = res.data.task_id;
-      
-      const pollTimer = setInterval(async () => {
-        try {
-          const statusRes = await axios.get(`${API_BASE}/task-status/${taskId}`, { withCredentials: true });
-          const state = statusRes.data.state;
-          if (state === 'SUCCESS') {
-            clearInterval(pollTimer);
-            setTextMode(prev => ({ ...prev, loading: false, result: statusRes.data.result }));
-          } else if (state === 'FAILURE') {
-            clearInterval(pollTimer);
-            setTextMode(prev => ({ ...prev, loading: false, error: statusRes.data.error || 'Validation failed.' }));
-          }
-        } catch (e) {
-          clearInterval(pollTimer);
-          setTextMode(prev => ({ ...prev, loading: false, error: 'Error polling task status.' }));
-        }
-      }, 2000);
-
+      await axios.post(`${API_BASE}/validate-text`, formData, { withCredentials: true });
+      navigate('/dashboard');
     } catch (err) {
       setTextMode(prev => ({ 
         ...prev, 
@@ -74,7 +56,7 @@ export default function TextValidation() {
             accept=".txt"
             onChange={(e) => {
               if(e.target.files.length > 0) {
-                setTextMode(prev => ({ ...prev, file: e.target.files[0], result: null }));
+                setTextMode(prev => ({ ...prev, file: e.target.files[0] }));
               }
             }}
           />
@@ -100,43 +82,6 @@ export default function TextValidation() {
             <div style={{color: 'var(--accent-magenta)', display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
               <AlertTriangle size={18} /> {textMode.error}
             </div>
-          </div>
-        )}
-
-        {textMode.result && (
-          <div className="result-card">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem', color: 'var(--accent-cyan)' }}>
-              <CheckCircle size={20} /> <span className="font-mono">VALIDATION COMPLETE</span>
-            </div>
-            <div className="stat-row">
-              <span className="stat-label">Model Target</span>
-              <span className="stat-value">GPT-2 (Strided Context)</span>
-            </div>
-            <div className="stat-row">
-              <span className="stat-label">Metric</span>
-              <span className="stat-value">Exp Neg-Log-Likelihood</span>
-            </div>
-            <div className="stat-row" style={{ marginTop: '1rem' }}>
-              <span className="stat-label" style={{ fontSize: '1.2rem', color: '#fff' }}>Perplexity Score</span>
-              <span className="stat-value highlight">{textMode.result.perplexity.toFixed(2)}</span>
-            </div>
-            
-            <div style={{ marginTop: '1rem', padding: '0.75rem', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-              {textMode.result.perplexity < 60 ? 'Optimal human-like textual density detected.' : 'High perplexity: possible bot-generated or anomalous text structure.'}
-            </div>
-
-            <Gauge 
-              value={textMode.result.perplexity} 
-              min={0} 
-              max={200} 
-              label="Perplexity" 
-              invert={true} 
-              levels={[
-                { label: 'Optimal', range: '< 60', color: 'var(--accent-cyan)' },
-                { label: 'Stable', range: '60 - 100', color: '#FFCC00' },
-                { label: 'Critical', range: '> 100', color: 'var(--accent-magenta)' }
-              ]}
-            />
           </div>
         )}
       </div>
